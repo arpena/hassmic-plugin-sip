@@ -1,5 +1,0 @@
-# the toolchain the Rust build is made and checked with; rustup installs it and the targets on the first build
-[toolchain]
-channel = "1.100.0"
-profile = "minimal"
-targets = ["armv7-unknown-linux-musleabihf", "x86_64-unknown-linux-musl"]

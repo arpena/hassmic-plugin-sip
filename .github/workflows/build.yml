@@ -1,8 +1,8 @@
 # Every push and pull request: the program for the Echos (32-bit ARM, static musl) built twice in two folders, which
 # has to give the same bytes (the release job builds it a third time and has to get them again); the file rules
-# (plugcheck.py elf); the release's packing and its refusals, with a throwaway key (make release-test); the Rust build
-# and its client's tests against hassmic's test vectors; both ARM programs under qemu; and both builds inside
-# hassmic's PC build (test.py), with hassmic checked out at the commit sdk/VERSION names.
+# (plugcheck.py elf); the release's packing and its refusals, with a throwaway key (make release-test); the unit tests
+# (G.711, the filters, MD5: make unit); the ARM program under qemu; and the plugin inside hassmic's PC build against a
+# stand-in phone system (test.py), with hassmic checked out at the commit sdk/VERSION names.
 # A tag v<version> releases: release.yml calls this first (workflow_call) and releases only once it passed.
 # Every action is pinned by its commit (the tag it was in a comment beside it): a tag moved in the action's own
 # repository changes nothing that runs here.  Raise them by hand.
@@ -49,15 +49,9 @@ jobs:
       # tools/release.sh as the release runs it, with a throwaway key: what a tag would release, and its refusals
       - name: The release's packing
         run: make release-test
-      # Rust as .github/rust.txt pins it, each file by its SHA-256 (tools/rustpin.sh), never the runner's rustup (which
-      # fetches rust/rust-toolchain.toml's version by a manifest it checks against nothing pinned here): the compiler a
-      # release of the Rust build would have (README.md "Rust")
-      - name: Rust
-        run: |
-          rust=$(tools/rustpin.sh "$RUNNER_TEMP/rust")
-          PATH=$rust:$PATH make "build/$ID-rs" rust-unit
-          ls -l "build/$ID" "build/$ID-rs"
-      - name: Both on ARM, under qemu
+      - name: Unit tests
+        run: make unit
+      - name: On ARM, under qemu
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-user
           make arm-smoke

@@ -51,7 +51,7 @@ commit=$(git -C "$H" rev-parse HEAD 2>/dev/null || echo unknown)
 printf 'scopes %s\nhassmic %s\n' "$scopes" "$commit" > sdk/VERSION
 cat sdk/VERSION
 # what a manifest here requires that this SDK's client does not speak (a later version than its own, a scope it has not)
-for m in manifest.json tone/manifest.json; do
+for m in manifest.json; do
     [ -f "$m" ] || continue
     SCOPES="$scopes" python3 - "$m" <<'PY' >&2 || true
 import json, os, sys

@@ -1,5 +1,4 @@
 build/
 secrets/
 toolchain/
-rust/target/
 __pycache__/
