@@ -1,0 +1,20 @@
+[package]
+# The program inside the package is always called "plugin"; the plugin's id, name and version are manifest.json's
+# alone (and this build's id is that id with "-rs", tools/rsmanifest.py), so nothing here changes with a rename.
+name = "plugin"
+version = "0.0.0"
+edition = "2021"
+license = "0BSD"
+description = "The example plugin of hassmic's plugin template, in Rust, speaking hassmic's plugin protocol from sdk/PROTOCOL.md"
+publish = false
+
+# no dependencies: std, and a few of musl's functions declared by hand (src/sys.rs).  A crate you add must keep to
+# the sandbox: no files, no sockets of its own, no threads beyond the manifest's "threads"
+[dependencies]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

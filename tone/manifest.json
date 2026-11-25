@@ -1,0 +1,11 @@
+{ "id": "tone", "name": "Tone", "version": 1, "version_name": "1",
+  "requires": {"core": 1, "audio.music": 1},
+  "author": "Your name", "source": "https://github.com/your-account/hassmic-plugin-tone", "license": "0BSD",
+  "description": "A placeholder music source from hassmic's plugin template: it plays a steady tone on this Echo's speaker, as a music player would play music. Rename it and make it yours.",
+  "models": ["*"], "memory_mb": 8, "threads": 1,
+  "capabilities": { "audio.music": true },
+  "settings": [
+    { "name": "frequency", "label": "Frequency", "type": "int", "min": 50, "max": 4000, "unit": "Hz", "default": 440,
+      "help": "The tone's pitch." },
+    { "name": "level", "label": "Level", "type": "int", "min": -60, "max": -6, "unit": "dB", "default": -20,
+      "help": "How loud it is written, below full scale; the Echo's volume and its duck come on top." } ] }

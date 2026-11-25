@@ -1,0 +1,116 @@
+# Every push and pull request: the program for the Echos (32-bit ARM, static musl) built twice in two folders, which
+# has to give the same bytes (the release job builds it a third time and has to get them again); the file rules
+# (plugcheck.py elf); the release's packing and its refusals, with a throwaway key (make release-test); the Rust build
+# and its client's tests against hassmic's test vectors; both ARM programs under qemu; and both builds inside
+# hassmic's PC build (test.py), with hassmic checked out at the commit sdk/VERSION names.
+# A tag v<version> releases: release.yml calls this first (workflow_call) and releases only once it passed.
+# Every action is pinned by its commit (the tag it was in a comment beside it): a tag moved in the action's own
+# repository changes nothing that runs here.  Raise them by hand.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  # hassmic's repository, for the PC test (the commit is sdk/VERSION's)
+  HASSMIC_REPO: Gamer92000/echo-dot-assist
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: The plugin's id
+        run: echo "ID=$(python3 -c 'import json; print(json.load(open("manifest.json"))["id"])')" >> "$GITHUB_ENV"
+      # zig as a Python wheel, by its SHA-256 (.github/zig.txt): one pinned download, the same compiler on every
+      # runner, the release job's too.  In an environment of its own, outside the tree (the runner's Python may refuse
+      # a plain pip install, and the second build copies the tree)
+      - name: Compiler
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zig"
+          "$RUNNER_TEMP/zig/bin/pip" install --require-hashes -r .github/zig.txt
+          echo "PLUGIN_CC=$RUNNER_TEMP/zig/bin/python -m ziglang cc -target arm-linux-musleabihf -mcpu=cortex_a7" >> "$GITHUB_ENV"
+      # (make runs plugcheck.py elf on each program it builds: a program that breaks the rules a file shows fails here)
+      - name: Build, twice
+        run: |
+          make "build/$ID"
+          cp -r . ../again && make -C ../again clean "build/$ID"
+          sha256sum "build/$ID" | cut -d' ' -f1 > "build/$ID.sha256"
+          [ "$(sha256sum "../again/build/$ID" | cut -d' ' -f1)" = "$(cat "build/$ID.sha256")" ] ||
+              { echo "::error::the program is not the same when built again in another folder"; exit 1; }
+      # tools/release.sh as the release runs it, with a throwaway key: what a tag would release, and its refusals
+      - name: The release's packing
+        run: make release-test
+      # Rust as .github/rust.txt pins it, each file by its SHA-256 (tools/rustpin.sh), never the runner's rustup (which
+      # fetches rust/rust-toolchain.toml's version by a manifest it checks against nothing pinned here): the compiler a
+      # release of the Rust build would have (README.md "Rust")
+      - name: Rust
+        run: |
+          rust=$(tools/rustpin.sh "$RUNNER_TEMP/rust")
+          PATH=$rust:$PATH make "build/$ID-rs" rust-unit
+          ls -l "build/$ID" "build/$ID-rs"
+      - name: Both on ARM, under qemu
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-user
+          make arm-smoke
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: program
+          path: |
+            build/${{ env.ID }}
+            build/${{ env.ID }}.sha256
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          path: plugin
+      # the hassmic the SDK was taken from (tools/sync.sh writes its commit into sdk/VERSION): the test runs the plugin
+      # in that hassmic's PC build, and sdk/ is checked against that tree.  A commit hassmic's repository does not have
+      # on GitHub (an SDK taken from a tree with changes not pushed) fails here, and so does an sdk/VERSION that names
+      # no commit ("hassmic unknown": actions/checkout given ref '' would take hassmic's default branch; a review of
+      # 6bca341)
+      - name: Which hassmic
+        id: hassmic
+        run: |
+          c=$(sed -n 's/^hassmic \([0-9a-f]\{40\}\).*/\1/p' plugin/sdk/VERSION)
+          [[ $c =~ ^[0-9a-f]{40}$ ]] || { echo "::error::plugin/sdk/VERSION names no commit of hassmic (${c:-none}): run tools/sync.sh with a hassmic that is a git tree"; exit 1; }
+          echo "commit=$c" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          repository: ${{ env.HASSMIC_REPO }}
+          ref: ${{ steps.hassmic.outputs.commit }}
+          path: echo-dot-assist
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          python-version: '3.13'
+      - name: Packages
+        timeout-minutes: 8
+        run: |
+          echo 'man-db man-db/auto-update boolean false' | sudo debconf-set-selections
+          sudo rm -f /var/lib/man-db/auto-update
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libopus-dev libcurl4
+          # the test makes a network namespace as an unprivileged user (Ubuntu 24.04 restricts that by default)
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: hassmic for the PC
+        working-directory: echo-dot-assist
+        run: |
+          uv sync --locked
+          make -j"$(nproc)" build/hassmic-host build/plugrun-host
+      - name: The SDK is that hassmic's
+        working-directory: plugin
+        run: tools/sync.sh --check ../echo-dot-assist
+      - name: Test
+        working-directory: plugin
+        run: make test HASSMIC=../echo-dot-assist

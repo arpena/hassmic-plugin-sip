@@ -1,0 +1,110 @@
+# A tag v<version>: the release.  First the whole of CI (build.yml, called: the program built twice, the Rust build,
+# both on ARM under qemu, the test in hassmic's PC build); then the job "release" builds the program again (it has to
+# be the build job's, byte for byte), packs it and signs the manifest with your author key (tools/release.sh), attests
+# the package (actions/attest-build-provenance: a GitHub artifact attestation, Sigstore, that this repository's
+# workflow, at this commit, on a runner GitHub hosts, built these bytes), and publishes it as the release's asset
+# <id>-<version>.hmp with the attestation's bundle beside it.  The plugin index lists a version only with that
+# attestation, verified against its entry (source, commit, the package's SHA-256, a GitHub-hosted runner, and this
+# file, .github/workflows/release.yml, as both the workflow that signed and the one the run was for, started by the
+# push of the tag the release is under): a package uploaded by hand, built anywhere else, attested by another
+# workflow, by this one called from another or run by hand, is not listed (README.md "Getting listed").  So the
+# attestation step stays in this file's own job, and this file runs for a tag's push and nothing else.  What the
+# attestation does not say is what this workflow does: the index's maintainer reads it and all it runs (build.yml,
+# tools/release.sh, the Makefile, the actions by their commits).  Nothing of what goes into the package may come from
+# outside that commit: no action (`uses:`) not pinned by a commit of the action's own repository (one on its tags or
+# branches: GitHub runs a fork's commit under the original's name too, an impostor commit, which the index refuses),
+# all the way down (a composite action's own steps, a called workflow's, a docker action's image and its Dockerfile's
+# `FROM`, by the same rule), no artifact of another job or run (one only to compare a build of its own with), no
+# other job's outputs (`needs.*.outputs`) but a SHA-256 to compare with, nothing of the event's payload
+# (`github.event.*`; a tag's annotation is not in the commit) but the tag's name, no other repository checked out at
+# a ref that moves (a branch or a tag; a commit's id stays), no container image (`container:`, `docker://`) not
+# pinned by its digest, no cache (`actions/cache`, the caches `setup-*` actions keep, which other runs write), no
+# `vars` and no secret as an input (the signing key aside, which only the release job's environment holds: no other
+# job names an environment, whose secrets it would get), no release asset already there, no toolchain resolved online
+# by a channel (rustup's `stable`, `beta` or `nightly`, in a `rust-toolchain.toml` or on its command line), and no
+# download not pinned by its hash; and a re-run of an old run, which GitHub attests as that tag's push again, has to
+# make the same bytes.
+#
+# Your key is a secret of the environment "release" (PLUGIN_SIGNING_KEY: base64 of secrets/author.key, made by
+# `make key`), which only the release job names: builds of pull requests never run with it.  The template itself has
+# no key and no secret: the release refuses until you made your own (README.md "Releases").
+# Under nektos/act everything runs except the attestation and the publishing, which only say what they would do (act
+# has no OIDC token to sign with).  Every action is pinned by its commit (the tag it was in a comment beside it): a tag
+# moved in the action's own repository changes nothing that runs here, in the job that holds the signing key least of
+# all.  Raise them by hand.
+# The release job is the one tools/workflow_test.py allows, key for key and step for step (make release-test): a
+# change of it here is a change there too, which whoever reviews it sees.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    uses: ./.github/workflows/build.yml
+
+  release:
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write             # the release and its assets
+      id-token: write             # the OIDC token Sigstore's certificate is made from
+      attestations: write         # the attestation, kept by GitHub for this repository
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      # zig 0.13.0 as the build job has it: the ziglang wheel by its SHA-256 (.github/zig.txt)
+      - name: Compiler
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zig"
+          "$RUNNER_TEMP/zig/bin/pip" install --require-hashes -r .github/zig.txt
+          echo "PLUGIN_CC=$RUNNER_TEMP/zig/bin/python -m ziglang cc -target arm-linux-musleabihf -mcpu=cortex_a7" >> "$GITHUB_ENV"
+      # the build job's program, which the tests ran: the one built here has to be it, byte for byte (only its
+      # SHA-256 is read, by the Package step; what is packed is built there)
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: program
+          path: checked
+      # (the build job's SHA-256 read in a statement of its own, which bash -e stops at where there is no file, and
+      # held to 64 hex digits: inside tools/release.sh's argument a cat that found nothing gave it an empty one, which
+      # it took as "no check"; a review of 6bca341.  tools/release.sh refuses one that is not 64 hex digits as well)
+      - name: Package
+        id: package
+        env:
+          PLUGIN_SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
+        run: |
+          [ -n "$PLUGIN_SIGNING_KEY" ] || { echo "::error::secret PLUGIN_SIGNING_KEY missing in the environment release"; exit 1; }
+          id=$(python3 -c 'import json; print(json.load(open("manifest.json"))["id"])')
+          sha=$(cat "checked/$id.sha256")
+          [[ $sha =~ ^[0-9a-f]{64}$ ]] || { echo "::error::the build job's artifact holds no SHA-256 of its program ($id.sha256)"; exit 1; }
+          mkdir -p secrets
+          trap 'rm -f secrets/author.key' EXIT
+          (umask 077; echo "$PLUGIN_SIGNING_KEY" | base64 -d > secrets/author.key)
+          pkg=$(tools/release.sh "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" secrets/author.key dist "$sha")
+          echo "path=$pkg" >> "$GITHUB_OUTPUT"
+      - name: Attest
+        id: attest
+        if: ${{ !env.ACT }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: ${{ steps.package.outputs.path }}
+      - name: Publish
+        if: ${{ !env.ACT }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          PACKAGE: ${{ steps.package.outputs.path }}
+        run: |
+          name=$(python3 -c 'import json; print(json.load(open("manifest.json"))["name"])')
+          cp "$BUNDLE" "$PACKAGE.sigstore.json"
+          gh release create "$GITHUB_REF_NAME" dist/* --title "$name $GITHUB_REF_NAME" --generate-notes
+      - name: Attest and publish (dry run)
+        if: ${{ env.ACT }}
+        run: ls -l dist
