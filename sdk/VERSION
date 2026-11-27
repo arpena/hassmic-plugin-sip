@@ -1,2 +1,2 @@
 scopes core 1 storage 1 files 1 state 1 log.read 1 log.read.full 1 net.server 1 net.lan 1 net.internet 1 net.udp 1 net.discover 1 audio.music 1 audio.volume 1 call 1 wake 1 request.audio 1 request.text 1 ha.entities 1 ha.actions 1 button 1
-hassmic 69199259737f3a84ceabefde7b82db933a018081
+hassmic c30efcbb8b181a4f8b5e726773304a47655429fd

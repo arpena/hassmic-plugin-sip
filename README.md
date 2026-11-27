@@ -90,8 +90,7 @@ make release-test    # the release's packing with a throwaway key, and the workf
 make index-check     # the plugin index's checks (INDEX: a checkout of hassmic-plugins)
 ```
 
-`test.py` runs hassmic with a Drop In network of its own on loopback, and the phone system on another host in a
-network namespace (hassmic's `tests/peerhost.py`). Where unprivileged user namespaces are restricted (Ubuntu's
+`test.py` runs the phone system on another host in a network namespace (hassmic's `tests/peerhost.py`). Where unprivileged user namespaces are restricted (Ubuntu's
 `kernel.apparmor_restrict_unprivileged_userns`), switch that off for the run, as CI does.
 
 It covers: registration by digest; calls in with A-law and mu-law that ring until the action button answers, the

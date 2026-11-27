@@ -248,10 +248,6 @@ async def scenario(top):
     plugcheck.pack(f"{HERE}/manifest.json", f"{HERE}/build/{ID}-host", os.path.join(top, "author.key"), pkg, license_=f"{HERE}/LICENSE", arch="x86_64")
     # community plugins on (a plugin from a file is not official); full scale (the call's audio as sent)
     open(os.path.join(state, "config"), "w").write("plugins=on\nplugins_community=on\neven_volume=off\n")
-    # a Drop In network of its own (arbitration on): hassmic's call audio (call.c's playout and call microphone threads)
-    # starts with Drop In, which only runs in one; on loopback (HASSMIC_ARB_ADDR, fake_plugins.py's)
-    open(os.path.join(state, "arbitration"), "w").write(f"arbitrate 1\nctr 0\nnet {int.from_bytes(os.urandom(8), 'little') | 1:016x} "
-                                                        + base64.b64encode(os.urandom(32)).decode() + "\n")
     api_key = base64.b64encode(os.urandom(32)).decode()
     open(os.path.join(state, "api_key"), "w").write(api_key + "\n")
     # the call microphone (HASSMIC_CALL_CAP): a 700 Hz tone at -20 dBFS, as Amazon's call pipeline leaves a talker
@@ -262,8 +258,8 @@ async def scenario(top):
     plog = lambda: [l.split(own, 1)[1] for l in text().splitlines() if own in l]
     async def says(t, n0=0, secs=8): return await until(lambda: any(t in l for l in plog()[n0:]), secs)
     # rings of 6 s; the far side's answer within 10 s; a call out rings 20 s at most; rings counted over 20 s
-    proc = fp.start(state, log, extra=("-a", "16987", "-i", "16983"),
-                    env={"HASSMIC_CALL_CAP": callcap, "HASSMIC_VOIP": voip, "HASSMIC_PLUGIN_CALL_TIMES": "6000:10000:20000:20000"})
+    proc = fp.start(state, log, env={"HASSMIC_CALL_CAP": callcap, "HASSMIC_VOIP": voip,
+                                             "HASSMIC_PLUGIN_CALL_TIMES": "6000:10000:20000:20000"})
     ha = None
     try:
         wait_port(fp.PORT, fp.WEB)
